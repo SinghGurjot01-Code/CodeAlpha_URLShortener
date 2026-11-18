@@ -1,5 +1,8 @@
 # CodeAlpha URL Shortener
 
+**Live Demo:** <https://codealpha-urlshortener.singhgurjotpal84.workers.dev>  
+**GitHub Repository:** <https://github.com/SinghGurjot01-Code/CodeAlpha_URLShortener>
+
 A simple URL shortener built for the **CodeAlpha Backend Development Internship – Task 1**. Paste a long URL, get a short link, and anyone visiting the short link is redirected to the original address.
 
 ## Tech stack
@@ -54,7 +57,7 @@ CodeAlpha_URLShortener/
 Requirements: **Node.js 20+** and npm. No Cloudflare account is needed for local development.
 
 ```bash
-git clone https://github.com/<your-username>/CodeAlpha_URLShortener.git
+git clone https://github.com/SinghGurjot01-Code/CodeAlpha_URLShortener.git
 cd CodeAlpha_URLShortener/backend
 npm install
 ```
@@ -138,21 +141,22 @@ Integration tests cover health, frontend serving, shortening, redirects, invalid
 npx wrangler d1 execute codealpha-urlshortener-db --local --command "SELECT * FROM urls"
 ```
 
-## Deployment (Cloudflare) — not yet performed
+## Deployment (Cloudflare)
 
-These steps create Cloudflare resources; run them only when you are ready to deploy.
+The project is deployed to Cloudflare Workers + D1 at **<https://codealpha-urlshortener.singhgurjotpal84.workers.dev>** (`D1` database `codealpha-urlshortener-db`, ID `be32112a-ab78-4cdc-98fe-f5fcc85489aa`).
+
+To deploy your own instance or push updates:
 
 ```bash
 cd backend
 npx wrangler login
-npx wrangler d1 create codealpha-urlshortener-db
+npx wrangler d1 create codealpha-urlshortener-db   # first-time only
 ```
 
-1. Copy the printed `database_id` into `d1_databases[0].database_id` in `wrangler.jsonc`.
+1. Ensure `d1_databases[0].database_id` in `wrangler.jsonc` matches your D1 database ID.
 2. Apply migrations to the remote database: `npm run db:migrate:remote`.
-3. Deploy: `npm run deploy` (note the `*.workers.dev` URL).
-4. Set `vars.BASE_URL` in `wrangler.jsonc` to that public URL and run `npm run deploy` again.
-5. Smoke test: `curl https://<your-worker>/api/health`, then shorten a URL and open the short link.
+3. Deploy: `npm run deploy` (or pass `--var BASE_URL:https://<your-worker>.workers.dev`).
+4. Smoke test: `curl https://<your-worker>/api/health`, then shorten a URL and open the short link.
 
 D1 data lives in Cloudflare's managed storage, so records persist across deployments. Future schema changes are added as new numbered files in `backend/migrations/` and applied with `npm run db:migrate:remote`.
 

@@ -1,4 +1,4 @@
-{
+﻿{
   // Express on Cloudflare Workers + D1. Frontend is served as static assets from ../frontend.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "codealpha-urlshortener",
@@ -15,17 +15,16 @@
     {
       "binding": "DB",
       "database_name": "codealpha-urlshortener-db",
-      // PLACEHOLDER: replace with the real id from `wrangler d1 create` before deploying.
-      // Not needed for local development (`--local` uses a local D1 under .wrangler/).
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // Real D1 database id (an identifier, not a secret).
+      // Local development (`--local`) uses a separate local D1 under .wrangler/.
+      "database_id": "be32112a-ab78-4cdc-98fe-f5fcc85489aa",
       "migrations_dir": "migrations"
     }
   ],
 
   // Non-secret configuration. No secrets are used by this app.
   "vars": {
-    // Public origin for short links, e.g. "https://codealpha-urlshortener.<subdomain>.workers.dev".
-    // Empty = derive from the incoming request (fine for local dev; set it in production).
+    // Public origin for short links. In local dev, use .dev.vars or leave empty to derive from request.
     "BASE_URL": "",
     // Comma-separated origins allowed to call the API from a separately hosted frontend. Empty = same-origin only.
     "CORS_ORIGIN": "",
@@ -34,3 +33,5 @@
 
   "observability": { "enabled": true }
 }
+
+
