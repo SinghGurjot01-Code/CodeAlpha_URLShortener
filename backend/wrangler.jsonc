@@ -1,0 +1,36 @@
+{
+  // Express on Cloudflare Workers + D1. Frontend is served as static assets from ../frontend.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "codealpha-urlshortener",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-10-01",
+  // Node.js APIs + node:http server support, required by Express.
+  "compatibility_flags": ["nodejs_compat", "enable_nodejs_http_server_modules"],
+
+  // Static frontend. Files that match (/, /config.js) are served directly;
+  // everything else (/api/*, /:code) falls through to the Worker.
+  "assets": { "directory": "../frontend" },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "codealpha-urlshortener-db",
+      // PLACEHOLDER: replace with the real id from `wrangler d1 create` before deploying.
+      // Not needed for local development (`--local` uses a local D1 under .wrangler/).
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Non-secret configuration. No secrets are used by this app.
+  "vars": {
+    // Public origin for short links, e.g. "https://codealpha-urlshortener.<subdomain>.workers.dev".
+    // Empty = derive from the incoming request (fine for local dev; set it in production).
+    "BASE_URL": "",
+    // Comma-separated origins allowed to call the API from a separately hosted frontend. Empty = same-origin only.
+    "CORS_ORIGIN": "",
+    "SHORT_CODE_LENGTH": "7"
+  },
+
+  "observability": { "enabled": true }
+}

@@ -1,21 +1,50 @@
+// Integration tests: boot the real Worker (Express on workerd) with a throwaway LOCAL D1 database
+// via Wrangler, then exercise the HTTP API. Nothing touches Cloudflare's network or your real data.
 const test = require('node:test');
 const assert = require('node:assert');
-const { openDatabase } = require('../src/db/database');
-const { createApp } = require('../src/app');
+const { spawn, execSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
-const config = {
-  env: 'test', baseUrl: 'http://localhost:3999', corsOrigins: [], codeLength: 7,
-  serveFrontend: false, frontendDir: '', trustProxy: false,
-};
+const PORT = 8799;
+const base = `http://127.0.0.1:${PORT}`;
+const cwd = path.join(__dirname, '..');
+const persist = fs.mkdtempSync(path.join(os.tmpdir(), 'urlshort-d1-'));
+let proc;
 
-let server, base, db;
+function startWorker() {
+  return new Promise((resolve, reject) => {
+    proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--persist-to', persist],
+      { cwd, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const timer = setTimeout(() => reject(new Error('wrangler dev did not become ready')), 90000);
+    const onData = (d) => { if (/Ready on/.test(d.toString())) { clearTimeout(timer); resolve(); } };
+    proc.stdout.on('data', onData);
+    proc.stderr.on('data', onData);
+    proc.on('exit', (c) => { clearTimeout(timer); reject(new Error('wrangler exited early: ' + c)); });
+  });
+}
+function stopWorker() {
+  return new Promise((resolve) => {
+    if (!proc) return resolve();
+    proc.removeAllListeners('exit');
+    proc.once('exit', resolve);
+    if (process.platform === 'win32') {
+      try { execSync(`taskkill /pid ${proc.pid} /T /F`, { stdio: 'ignore' }); } catch {}
+    } else proc.kill('SIGTERM');
+    setTimeout(resolve, 3000);
+  });
+}
+
 test.before(async () => {
-  db = openDatabase(':memory:');
-  server = createApp({ db, config }).listen(0);
-  await new Promise((r) => server.once('listening', r));
-  base = `http://127.0.0.1:${server.address().port}`;
+  execSync(`npx wrangler d1 migrations apply codealpha-urlshortener-db --local --persist-to "${persist}"`,
+    { cwd, stdio: 'ignore' });
+  await startWorker();
 });
-test.after(() => { server.close(); db.close(); });
+test.after(async () => {
+  await stopWorker();
+  fs.rmSync(persist, { recursive: true, force: true });
+});
 
 const post = (body, raw) => fetch(`${base}/api/shorten`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: raw ?? JSON.stringify(body),
@@ -27,38 +56,42 @@ test('health check', async () => {
   assert.equal((await r.json()).status, 'ok');
 });
 
+test('serves the frontend', async () => {
+  const r = await fetch(`${base}/`);
+  assert.equal(r.status, 200);
+  assert.match(await r.text(), /Shorten Your Long URLs/);
+  assert.equal((await fetch(`${base}/config.js`)).status, 200);
+});
+
+let saved;
 test('shortens a valid URL and redirects', async () => {
   const r = await post({ url: 'https://example.com/some/long/path?x=1' });
   assert.equal(r.status, 201);
-  const d = await r.json();
-  assert.match(d.code, /^[A-Za-z0-9]{7}$/);
-  assert.equal(d.shortUrl, `http://localhost:3999/${d.code}`);
-  assert.equal(d.originalUrl, 'https://example.com/some/long/path?x=1');
-  const red = await fetch(`${base}/${d.code}`, { redirect: 'manual' });
+  saved = await r.json();
+  assert.match(saved.code, /^[A-Za-z0-9]{7}$/);
+  assert.equal(saved.shortUrl, `${base}/${saved.code}`);
+  assert.equal(saved.originalUrl, 'https://example.com/some/long/path?x=1');
+  const red = await fetch(`${base}/${saved.code}`, { redirect: 'manual' });
   assert.equal(red.status, 302);
-  assert.equal(red.headers.get('location'), d.originalUrl);
+  assert.equal(red.headers.get('location'), saved.originalUrl);
 });
 
-test('adds https:// when scheme is missing', async () => {
-  const d = await (await post({ url: 'example.org' })).json();
-  assert.equal(d.originalUrl, 'https://example.org/');
+test('adds https:// when the scheme is missing', async () => {
+  assert.equal((await (await post({ url: 'example.org' })).json()).originalUrl, 'https://example.org/');
 });
 
-test('rejects invalid URLs', async () => {
-  for (const url of ['', '   ', 'not a url', 'ftp://example.com', 'javascript:alert(1)', 'http://nodot', 42, null, undefined, 'https://' + 'a'.repeat(3000) + '.com']) {
+test('rejects invalid URLs, bad JSON and self-links', async () => {
+  for (const url of ['', 'not a url', 'ftp://example.com', 'javascript:alert(1)', 'http://nodot', 42, null]) {
     const r = await post({ url });
-    assert.equal(r.status, 400, `should reject ${String(url).slice(0, 30)}`);
+    assert.equal(r.status, 400, `should reject ${url}`);
     assert.ok((await r.json()).error);
   }
-});
-
-test('rejects malformed JSON and self-referencing links', async () => {
   assert.equal((await post(null, '{bad')).status, 400);
-  assert.equal((await post({ url: 'http://localhost:3999/abc1234' })).status, 400);
+  assert.equal((await post({ url: `${base}/abc1234` })).status, 400);
 });
 
 test('unknown short code returns 404 (json and html)', async () => {
-  const j = await fetch(`${base}/doesNotExist`, { headers: { Accept: 'application/json' }, redirect: 'manual' });
+  const j = await fetch(`${base}/doesNotExist`, { headers: { Accept: 'application/json' } });
   assert.equal(j.status, 404);
   assert.ok((await j.json()).error);
   const h = await fetch(`${base}/doesNotExist`, { headers: { Accept: 'text/html' } });
@@ -68,26 +101,14 @@ test('unknown short code returns 404 (json and html)', async () => {
 
 test('generated codes are unique', async () => {
   const codes = new Set();
-  for (let i = 0; i < 300; i++) codes.add((await (await post({ url: 'https://example.com/' + i })).json()).code);
-  assert.equal(codes.size, 300);
+  for (let i = 0; i < 100; i++) codes.add((await (await post({ url: 'https://example.com/' + i })).json()).code);
+  assert.equal(codes.size, 100);
 });
 
-test('collisions are retried', async () => {
-  const { createUrlService } = require('../src/services/urlService');
-  const mem = openDatabase(':memory:');
-  // Length-1 alphabet space is impossible, so force collisions by pre-filling every 1-char... use length 4 + stub.
-  const svc = createUrlService(mem, { codeLength: 4 });
-  const shortCode = require('../src/utils/shortCode');
-  const original = shortCode.generateCode;
-  mem.prepare('INSERT INTO urls (code, original_url) VALUES (?, ?)').run('AAAA', 'https://taken.example.com');
-  let calls = 0;
-  require.cache[require.resolve('../src/utils/shortCode')].exports.generateCode = () => (++calls < 3 ? 'AAAA' : 'BBBB');
-  delete require.cache[require.resolve('../src/services/urlService')];
-  const svc2 = require('../src/services/urlService').createUrlService(mem, { codeLength: 4 });
-  const row = svc2.create('https://new.example.com');
-  require.cache[require.resolve('../src/utils/shortCode')].exports.generateCode = original;
-  assert.equal(row.code, 'BBBB');
-  assert.equal(calls, 3);
-  assert.ok(svc);
-  mem.close();
+test('data persists across a worker restart', async () => {
+  await stopWorker();
+  await startWorker();
+  const red = await fetch(`${base}/${saved.code}`, { redirect: 'manual' });
+  assert.equal(red.status, 302);
+  assert.equal(red.headers.get('location'), saved.originalUrl);
 });

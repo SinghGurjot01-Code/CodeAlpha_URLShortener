@@ -1,0 +1,10 @@
+﻿# Copy to .dev.vars (git-ignored) to override wrangler.jsonc "vars" during `wrangler dev`.
+# Wrangler reads this file automatically for local development. Do not put real secrets in git.
+
+# Public origin used to build short links. Leave unset locally to derive it from the request.
+# BASE_URL=http://localhost:8787
+
+# Origins allowed to call the API from a separately hosted frontend (comma-separated).
+# CORS_ORIGIN=http://localhost:5500
+
+# SHORT_CODE_LENGTH=7

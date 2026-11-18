@@ -1,13 +1,10 @@
 const express = require('express');
+const urlController = require('../controllers/urlController');
 
-function createRouter({ urlController }) {
-  const router = express.Router();
+const router = express.Router();
 
-  router.get('/api/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
-  router.post('/api/shorten', urlController.shorten);
-  router.get('/:code', urlController.redirect);
+router.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+router.post('/api/shorten', urlController.shorten);
+router.get('/:code', urlController.redirect);
 
-  return router;
-}
-
-module.exports = { createRouter };
+module.exports = router;

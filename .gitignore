@@ -22,3 +22,9 @@ Thumbs.db
 .vscode/
 .idea/
 coverage/
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
