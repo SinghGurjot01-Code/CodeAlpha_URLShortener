@@ -28,7 +28,7 @@
     "BASE_URL": "https://ca-urls.vercel.app",
     // Comma-separated origins allowed to call the API from a separately hosted frontend.
     "CORS_ORIGIN": "https://ca-urls.vercel.app",
-    "SHORT_CODE_LENGTH": "6"
+    "SHORT_CODE_LENGTH": "7"
   },
 
   "observability": { "enabled": true }

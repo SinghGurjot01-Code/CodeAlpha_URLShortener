@@ -28,13 +28,25 @@ A simple URL shortener built for the **CodeAlpha Backend Development Internship 
 - Clear errors for invalid URLs (400), malformed JSON (400) and unknown codes (404, JSON or HTML page)
 - Local development with a local D1 database (no Cloudflare account or resources needed)
 
+## Project workflow
+
+1. **Shortening a URL**:
+   - The user submits a long URL in the frontend form (`index.html`), which sends `POST /api/shorten` with `{"url": "..."}`.
+   - In production on `https://ca-urls.vercel.app`, Vercel's edge proxy (`frontend/vercel.json`) forwards `/api/shorten` to the Express.js Worker on Cloudflare (`https://codealpha-urlshortener.singhgurjotpal84.workers.dev/api/shorten`). Locally (`wrangler dev`), the Worker handles both static assets and API routes directly on `http://localhost:8787`.
+   - The Express controller normalizes and validates the URL, generates a 7-character random base62 code (`SHORT_CODE_LENGTH = 7`), inserts the mapping into the Cloudflare D1 `urls` table via a parameterized query (`?1, ?2`), and retries automatically if a `UNIQUE` constraint collision occurs.
+   - The API returns `201 Created` with `{ code, originalUrl, shortUrl, createdAt }`, and the frontend displays the ready-to-share short link and saves it to browser history (`localStorage`).
+2. **Visiting a short link**:
+   - A visitor opens `https://ca-urls.vercel.app/<code>` (or `http://localhost:8787/<code>` locally).
+   - Vercel's edge rewrite (`/:code([A-Za-z0-9]{4,32})`) transparently forwards the request to the Cloudflare Worker, which looks up `short_code` in D1 and responds with `302 Found` and `Location: <originalUrl>` (or `404 Not Found` if the code does not exist).
+
 ## Project structure
 
 ```
 CodeAlpha_URLShortener/
 ├── frontend/
 │   ├── index.html          # existing UI (only API-base wiring added)
-│   └── config.js           # runtime config: API_BASE_URL
+│   ├── config.js           # runtime config: API_BASE_URL
+│   └── vercel.json         # Vercel static hosting + edge rewrites to Cloudflare Worker
 ├── backend/
 │   ├── src/
 │   │   ├── worker.mjs      # Workers entry: Express via httpServerHandler + D1 binding
@@ -45,7 +57,7 @@ CodeAlpha_URLShortener/
 │   │   ├── repositories/   # D1 queries (parameterised)
 │   │   ├── middleware/     # 404 + error handlers
 │   │   └── utils/          # URL validation, code generation
-│   ├── migrations/         # D1 SQL migrations
+│   ├── migrations/         # D1 SQL migrations (0001_create_urls.sql)
 │   ├── tests/              # unit + integration tests
 │   ├── wrangler.jsonc      # Worker, assets, D1 binding, vars
 │   └── .dev.vars.example
@@ -65,27 +77,32 @@ npm install
 
 ## Local development
 
+Local development runs entirely offline using Wrangler's local workerd runtime and a local SQLite-backed D1 instance under `backend/.wrangler/` (completely separate from the remote production D1 database):
+
 ```bash
 cd backend
-npm run db:migrate:local   # creates the local D1 database (stored in backend/.wrangler/, git-ignored)
-npm run dev                # wrangler dev --local -> http://localhost:8787
+npm run db:migrate:local   # applies migrations/0001_create_urls.sql to local D1
+npm run dev                # runs `wrangler dev --local` at http://localhost:8787
 ```
 
-Open <http://localhost:8787>. The Worker serves the frontend (`../frontend`) as static assets and handles `/api/*` and `/:code`, so UI and API share one origin and the frontend needs no extra configuration.
+Open <http://localhost:8787>. Because `backend/wrangler.jsonc` configures `BASE_URL` for production (`https://ca-urls.vercel.app`), if you want locally generated `shortUrl` values to use `http://localhost:8787` instead, copy `.dev.vars.example` to `.dev.vars` and set `BASE_URL=http://localhost:8787` (or `BASE_URL=`).
 
 ## Configuration
 
 Non-secret settings live in `backend/wrangler.jsonc` under `vars` (this app uses no secrets):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BASE_URL` | _(empty)_ | Public origin used in short links, e.g. `https://codealpha-urlshortener.<you>.workers.dev`. Empty = derive from the request (OK locally). **Set it in production.** |
-| `CORS_ORIGIN` | _(empty)_ | Comma-separated origins allowed to call the API from a separately hosted frontend. Empty = same-origin only. |
-| `SHORT_CODE_LENGTH` | `7` | Length of generated codes. |
+| Variable | Configured Value | Description |
+|----------|------------------|-------------|
+| `BASE_URL` | `https://ca-urls.vercel.app` | Public origin used in generated `shortUrl` fields. Override locally in `backend/.dev.vars` (e.g. `BASE_URL=http://localhost:8787`) or pass `--var BASE_URL:` to derive from the request host. |
+| `CORS_ORIGIN` | `https://ca-urls.vercel.app` | Comma-separated origins allowed to call the API cross-origin. Empty = same-origin only. |
+| `SHORT_CODE_LENGTH` | `7` | Default length of generated base62 short codes (`7` characters). |
 
 Bindings: `DB` → D1 database `codealpha-urlshortener-db`. For local overrides copy `backend/.dev.vars.example` to `backend/.dev.vars` (git-ignored).
 
-**Frontend API URL:** `frontend/config.js` sets `API_BASE_URL`. Leave it empty when the Worker serves the frontend (default). If you host the frontend elsewhere, set it to the Worker's URL and add the frontend's origin to `CORS_ORIGIN`.
+**Frontend API URL & Vercel Proxy:**
+- `frontend/config.js` defines `window.APP_CONFIG = { API_BASE_URL: '' }`.
+- Leave `API_BASE_URL` empty (`''`) both in local development (`wrangler dev` serves the frontend and API on the same origin) and on Vercel (`frontend/vercel.json` proxies `/api/:path*` and `/:code([A-Za-z0-9]{4,32})` on `https://ca-urls.vercel.app` directly to `https://codealpha-urlshortener.singhgurjotpal84.workers.dev`).
+- If you host the frontend on a static host without proxy rewrites, set `API_BASE_URL` in `frontend/config.js` to `"https://codealpha-urlshortener.singhgurjotpal84.workers.dev"` and add that frontend origin to `CORS_ORIGIN`.
 
 ## API
 
@@ -132,37 +149,57 @@ Unknown code → `404` (`{"error":"Short link not found."}` for API clients, a s
 
 ```bash
 cd backend
-npm test            # unit + integration (boots the Worker with a throwaway local D1)
-npm run test:unit   # unit tests only (fast)
+npm test            # runs all unit + integration tests (boots Worker + temporary local D1)
+npm run test:unit   # runs unit tests only (URL validation, 7-char code generation, collision retry)
 ```
 
-Integration tests cover health, frontend serving, shortening, redirects, invalid input, unknown codes, uniqueness and persistence across a Worker restart. You can also exercise the API manually with curl or Postman against `http://localhost:8787`, and inspect stored rows with:
+Integration tests (`backend/tests/api.test.js`) apply `migrations/0001_create_urls.sql` to an isolated temporary local D1 directory, boot the real Worker via `wrangler dev --local`, and verify:
+- `GET /api/health` (`200 OK`)
+- Static frontend serving (`GET /` and `GET /config.js`)
+- `POST /api/shorten` (7-character base62 code generation) and `GET /:code` (`302` redirect)
+- Automatic `https://` prefix when scheme is omitted
+- Rejection of invalid URLs, malformed JSON and self-referencing links (`400 Bad Request`)
+- `404 Not Found` for nonexistent codes (both JSON and HTML responses)
+- Uniqueness across 100 generated codes
+- Data persistence across a full Worker process restart
+
+You can also inspect stored rows in local or remote D1 with:
 
 ```bash
+# Local D1
 npx wrangler d1 execute codealpha-urlshortener-db --local --command "SELECT * FROM urls"
+
+# Remote production D1
+npx wrangler d1 execute codealpha-urlshortener-db --remote --command "SELECT * FROM urls"
 ```
 
 ## Deployment (Vercel + Cloudflare)
 
-- **Vercel (`https://ca-urls.vercel.app`)** hosts the frontend and proxies `/api/*` and `/:code` rewrites via [`frontend/vercel.json`](frontend/vercel.json) directly to the Cloudflare Worker so short links use the short `https://ca-urls.vercel.app/<code>` domain.
-- **Cloudflare Workers + D1 (`https://codealpha-urlshortener.singhgurjotpal84.workers.dev`)** runs the Express.js API and stores links in D1 database `codealpha-urlshortener-db` (`be32112a-ab78-4cdc-98fe-f5fcc85489aa`).
+### Architecture Overview: Local vs. Production
 
-To deploy your own instance or push updates:
+| Aspect | Local Development (`npm run dev`) | Production (`ca-urls.vercel.app`) |
+|--------|-----------------------------------|-----------------------------------|
+| **Frontend Hosting** | Served by Wrangler static assets (`../frontend`) at `http://localhost:8787` | Served by **Vercel** at `https://ca-urls.vercel.app` |
+| **API & Redirect Routing** | Handled directly by local Express Worker on `http://localhost:8787` | `frontend/vercel.json` rewrites `/api/:path*` and `/:code([A-Za-z0-9]{4,32})` to `https://codealpha-urlshortener.singhgurjotpal84.workers.dev` |
+| **Backend Runtime** | Local `workerd` via `wrangler dev --local` | **Cloudflare Workers** (`codealpha-urlshortener`) |
+| **Database** | Local SQLite file inside `backend/.wrangler/state/v3/d1` (`--local`) | Managed **Cloudflare D1** (`codealpha-urlshortener-db`, ID `be32112a-ab78-4cdc-98fe-f5fcc85489aa`) |
+
+### Deploying or Updating
 
 ```bash
-# 1. Backend (Cloudflare Workers + D1)
+# 1. Backend & D1 migrations (Cloudflare Workers + D1)
 cd backend
 npx wrangler login
-npx wrangler d1 create codealpha-urlshortener-db   # first-time only
-npm run db:migrate:remote
-npm run deploy
+npx wrangler d1 create codealpha-urlshortener-db   # first-time setup only
+npm run db:migrate:remote                          # applies migrations/ to remote D1 (--remote)
+npm run deploy                                     # runs `wrangler deploy`
 
-# 2. Frontend & short-domain proxy (Vercel)
+# 2. Frontend & short-domain edge rewrites (Vercel)
 cd ../frontend
 vercel deploy --prod
 ```
 
-D1 data lives in Cloudflare's managed storage, so records persist across deployments. Future schema changes are added as new numbered files in `backend/migrations/` and applied with `npm run db:migrate:remote`.
+D1 data lives in Cloudflare's managed storage, so records persist across deployments. Future schema changes are added as new numbered files in `backend/migrations/` and applied locally with `npm run db:migrate:local` and in production with `npm run db:migrate:remote`.
 
 ## License
 
