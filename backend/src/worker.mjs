@@ -19,9 +19,10 @@ function context(req) {
       configuredBase: (env.BASE_URL || '').replace(/\/+$/, ''),
     };
   }
-  // Prefer the configured public URL; fall back to the request's own origin (handy for local dev).
+  // Prefer the configured public URL; fall back to X-Forwarded-Host (e.g. Vercel proxy) or Host.
   const proto = (req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
-  const baseUrl = cached.configuredBase || `${proto}://${req.headers.host}`;
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const baseUrl = cached.configuredBase || `${proto}://${host}`;
   return {
     urlService: cached.urlService,
     config: { baseUrl, corsOrigins: cached.corsOrigins },

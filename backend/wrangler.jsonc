@@ -25,10 +25,10 @@
   // Non-secret configuration. No secrets are used by this app.
   "vars": {
     // Public origin for short links. In local dev, use .dev.vars or leave empty to derive from request.
-    "BASE_URL": "",
-    // Comma-separated origins allowed to call the API from a separately hosted frontend. Empty = same-origin only.
-    "CORS_ORIGIN": "",
-    "SHORT_CODE_LENGTH": "7"
+    "BASE_URL": "https://ca-urls.vercel.app",
+    // Comma-separated origins allowed to call the API from a separately hosted frontend.
+    "CORS_ORIGIN": "https://ca-urls.vercel.app",
+    "SHORT_CODE_LENGTH": "6"
   },
 
   "observability": { "enabled": true }

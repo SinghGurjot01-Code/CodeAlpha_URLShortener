@@ -15,7 +15,7 @@ let proc;
 
 function startWorker() {
   return new Promise((resolve, reject) => {
-    proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--persist-to', persist],
+    proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--persist-to', persist, '--var', 'BASE_URL:', '--var', 'SHORT_CODE_LENGTH:7'],
       { cwd, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const timer = setTimeout(() => reject(new Error('wrangler dev did not become ready')), 90000);
     const onData = (d) => { if (/Ready on/.test(d.toString())) { clearTimeout(timer); resolve(); } };

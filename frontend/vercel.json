@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://codealpha-urlshortener.singhgurjotpal84.workers.dev/api/:path*"
+    },
+    {
+      "source": "/:code([A-Za-z0-9]{4,32})",
+      "destination": "https://codealpha-urlshortener.singhgurjotpal84.workers.dev/:code"
+    }
+  ]
+}

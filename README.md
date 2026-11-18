@@ -1,6 +1,7 @@
 # CodeAlpha URL Shortener
 
-**Live Demo:** <https://codealpha-urlshortener.singhgurjotpal84.workers.dev>  
+**Live Application (Vercel):** <https://ca-urls.vercel.app>  
+**Backend API (Cloudflare Workers + D1):** <https://codealpha-urlshortener.singhgurjotpal84.workers.dev>  
 **GitHub Repository:** <https://github.com/SinghGurjot01-Code/CodeAlpha_URLShortener>
 
 A simple URL shortener built for the **CodeAlpha Backend Development Internship – Task 1**. Paste a long URL, get a short link, and anyone visiting the short link is redirected to the original address.
@@ -9,10 +10,10 @@ A simple URL shortener built for the **CodeAlpha Backend Development Internship 
 
 | Layer      | Technology |
 |------------|------------|
-| Frontend   | HTML, CSS, vanilla JavaScript (no framework) |
+| Frontend   | HTML, CSS, vanilla JavaScript (hosted on **Vercel** at `ca-urls.vercel.app`) |
 | Backend    | Node.js + **Express.js**, running on **Cloudflare Workers** (`nodejs_compat` + `httpServerHandler`) |
 | Database   | **Cloudflare D1** (SQLite-compatible) |
-| Tooling    | Cloudflare **Wrangler** |
+| Tooling    | Cloudflare **Wrangler** & **Vercel CLI** |
 | Testing    | Node's built-in test runner, curl / Postman |
 | VCS        | Git & GitHub |
 
@@ -141,22 +142,25 @@ Integration tests cover health, frontend serving, shortening, redirects, invalid
 npx wrangler d1 execute codealpha-urlshortener-db --local --command "SELECT * FROM urls"
 ```
 
-## Deployment (Cloudflare)
+## Deployment (Vercel + Cloudflare)
 
-The project is deployed to Cloudflare Workers + D1 at **<https://codealpha-urlshortener.singhgurjotpal84.workers.dev>** (`D1` database `codealpha-urlshortener-db`, ID `be32112a-ab78-4cdc-98fe-f5fcc85489aa`).
+- **Vercel (`https://ca-urls.vercel.app`)** hosts the frontend and proxies `/api/*` and `/:code` rewrites via [`frontend/vercel.json`](frontend/vercel.json) directly to the Cloudflare Worker so short links use the short `https://ca-urls.vercel.app/<code>` domain.
+- **Cloudflare Workers + D1 (`https://codealpha-urlshortener.singhgurjotpal84.workers.dev`)** runs the Express.js API and stores links in D1 database `codealpha-urlshortener-db` (`be32112a-ab78-4cdc-98fe-f5fcc85489aa`).
 
 To deploy your own instance or push updates:
 
 ```bash
+# 1. Backend (Cloudflare Workers + D1)
 cd backend
 npx wrangler login
 npx wrangler d1 create codealpha-urlshortener-db   # first-time only
-```
+npm run db:migrate:remote
+npm run deploy
 
-1. Ensure `d1_databases[0].database_id` in `wrangler.jsonc` matches your D1 database ID.
-2. Apply migrations to the remote database: `npm run db:migrate:remote`.
-3. Deploy: `npm run deploy` (or pass `--var BASE_URL:https://<your-worker>.workers.dev`).
-4. Smoke test: `curl https://<your-worker>/api/health`, then shorten a URL and open the short link.
+# 2. Frontend & short-domain proxy (Vercel)
+cd ../frontend
+vercel deploy --prod
+```
 
 D1 data lives in Cloudflare's managed storage, so records persist across deployments. Future schema changes are added as new numbered files in `backend/migrations/` and applied with `npm run db:migrate:remote`.
 
